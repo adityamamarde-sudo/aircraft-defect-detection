@@ -1,5 +1,5 @@
+import base64
 import os
-import time
 import urllib.request
 import cv2
 import numpy as np
@@ -24,7 +24,7 @@ MODEL_PATH = "aircraft_defect_model_3datasets.pth"
 HF_MODEL_URL = "https://huggingface.co/Aditya-Mamarde/aircraft-defect-detector/resolve/main/aircraft_defect_model_3datasets.pth"
 VIDEO_PATH = "intro_animation.mp4"
 
-# Initialize Session State for Video Splash Screen
+# Initialize Session State
 if "show_dashboard" not in st.session_state:
     st.session_state["show_dashboard"] = False
 
@@ -67,7 +67,7 @@ def load_defect_detector():
     return model
 
 
-# Load the model at startup
+# Load model at startup
 try:
     model = load_defect_detector()
 except Exception as e:
@@ -80,14 +80,12 @@ except Exception as e:
 # -------------------------------------------------------------------
 def predict_defects(image_pil, confidence_threshold=0.5):
     """Runs inference on the input image and draws detection bounding boxes."""
-    # Ensure image is strictly 3-channel RGB (fixes RGBA PNG RuntimeError)
     image_rgb = image_pil.convert("RGB")
     img_tensor = F.to_tensor(image_rgb).unsqueeze(0)
 
     with torch.no_grad():
         predictions = model(img_tensor)[0]
 
-    # Convert PIL image to OpenCV BGR format for drawing
     img_cv = np.array(image_rgb)
     img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
 
@@ -102,10 +100,8 @@ def predict_defects(image_pil, confidence_threshold=0.5):
             detections_found += 1
             x1, y1, x2, y2 = box.astype(int)
 
-            # Draw bounding box (Red)
             cv2.rectangle(img_cv, (x1, y1), (x2, y2), (0, 0, 255), 2)
 
-            # Draw label banner
             label_text = f"Defect Class {label}: {score:.2f}"
             (text_w, text_h), _ = cv2.getTextSize(
                 label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
@@ -127,33 +123,60 @@ def predict_defects(image_pil, confidence_threshold=0.5):
                 1,
             )
 
-    # Convert back to RGB for Streamlit rendering
     result_img = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
     return result_img, detections_found
 
 
 # -------------------------------------------------------------------
-# SCREEN 1: Video Intro Splash Screen
+# SCREEN 1: Full-Screen Autoplay Intro Video with Auto-Transition
 # -------------------------------------------------------------------
 if not st.session_state["show_dashboard"]:
-    st.title("✈️ Aircraft Surface Defect Detection System")
-    st.markdown("### System Demonstration & Overview")
-
     if os.path.exists(VIDEO_PATH):
-        st.video(VIDEO_PATH, autoplay=True)
-    else:
-        st.info("Intro video not found. You can proceed directly to the app.")
+        # Convert video to base64 for seamless HTML rendering
+        with open(VIDEO_PATH, "rb") as video_file:
+            video_bytes = video_file.read()
+        encoded_video = base64.b64encode(video_bytes).decode("utf-8")
 
-    st.markdown("---")
-    if st.button("🚀 Enter Inspection Dashboard", type="primary"):
-        st.session_state["show_dashboard"] = True
-        st.rerun()
+        # HTML5 Video element with JavaScript auto-click on finish
+        video_html = f"""
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%;">
+            <video id="introVideo" width="100%" style="max-height: 80vh; border-radius: 10px;" autoplay muted playsinline>
+                <source src="data:video/mp4;base64,{encoded_video}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+        </div>
+        <script>
+            var video = document.getElementById("introVideo");
+            video.onended = function() {{
+                // Trigger transition button click when video ends
+                const buttons = window.parent.document.querySelectorAll('button');
+                for (let btn of buttons) {{
+                    if (btn.innerText.includes("Skip Intro") || btn.innerText.includes("Dashboard")) {{
+                        btn.click();
+                        break;
+                    }}
+                }}
+            }};
+        </script>
+        """
+        st.components.v1.html(video_html, height=550)
+
+    # Fallback/Skip button (hidden automatically when JS triggers it on end)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button(
+            "⏩ Skip Intro to Dashboard",
+            type="primary",
+            use_container_width=True,
+        ):
+            st.session_state["show_dashboard"] = True
+            st.rerun()
 
 # -------------------------------------------------------------------
 # SCREEN 2: Main Inspection Dashboard
 # -------------------------------------------------------------------
 else:
-    st.title("✈️ Aircraft Surface Defect Dashboard")
+    st.title("✈️ Aircraft Surface Defect Detection System")
     st.write(
         "Upload an image of an aircraft surface to identify structural defects in real-time."
     )
