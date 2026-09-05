@@ -1,5 +1,5 @@
-import base64
 import os
+import time
 import urllib.request
 import cv2
 import numpy as np
@@ -23,6 +23,9 @@ st.set_page_config(
 MODEL_PATH = "aircraft_defect_model_3datasets.pth"
 HF_MODEL_URL = "https://huggingface.co/Aditya-Mamarde/aircraft-defect-detector/resolve/main/aircraft_defect_model_3datasets.pth"
 VIDEO_PATH = "intro_animation.mp4"
+
+# Buffer (in seconds) to account for browser loading and prevent cutting off trailing audio
+PLAYBACK_BUFFER = 2.0
 
 if "show_dashboard" not in st.session_state:
     st.session_state["show_dashboard"] = False
@@ -63,6 +66,23 @@ try:
 except Exception as e:
     st.error(f"Error loading model: {e}")
     st.stop()
+
+
+# -------------------------------------------------------------------
+# Video Duration Helper
+# -------------------------------------------------------------------
+def get_video_duration(file_path):
+    """Calculates exact duration of the video in seconds."""
+    try:
+        cap = cv2.VideoCapture(file_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        cap.release()
+        if fps > 0 and frame_count > 0:
+            return frame_count / fps
+    except Exception:
+        pass
+    return 8.0  # Fallback duration if metadata cannot be read
 
 
 # -------------------------------------------------------------------
@@ -116,112 +136,70 @@ def predict_defects(image_pil, confidence_threshold=0.5):
 
 
 # -------------------------------------------------------------------
-# SCREEN 1: Event-Driven Full-Screen Video Intro
+# SCREEN 1: Full-Screen Intro Video (Buffered Auto-Transition)
 # -------------------------------------------------------------------
 if not st.session_state["show_dashboard"]:
     if os.path.exists(VIDEO_PATH):
-        with open(VIDEO_PATH, "rb") as f:
-            video_bytes = f.read()
-        encoded_video = base64.b64encode(video_bytes).decode("utf-8")
-
-        # Native bridge button that Streamlit listens to
-        if st.button("TRANSITION_SIGNAL_BUTTON", key="transition_trigger_btn"):
-            st.session_state["show_dashboard"] = True
-            st.rerun()
-
         st.markdown(
-            f"""
+            """
             <style>
-                header, footer, [data-testid="stSidebar"] {{
+                header, footer, [data-testid="stSidebar"] {
                     display: none !important;
-                }}
-                .main .block-container {{
+                }
+                .main .block-container {
                     padding: 0 !important;
                     margin: 0 !important;
                     max-width: 100vw !important;
                     height: 100vh !important;
                     background-color: black;
-                }}
-                /* Hide the native Streamlit button visually */
-                button[data-testid="stBaseButton-secondary"]:has(div:contains("TRANSITION_SIGNAL_BUTTON")),
-                div:has(> button[key="transition_trigger_btn"]) {{
-                    display: none !important;
-                }}
-                div[data-testid="stButton"] {{
-                    position: fixed;
-                    top: -100px;
-                    left: -100px;
-                    opacity: 0;
-                    pointer-events: none;
-                }}
-                .video-fullscreen-wrap {{
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100vw;
-                    height: 100vh;
-                    background-color: black;
-                    z-index: 999998;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                }}
-                video {{
-                    width: 100vw;
-                    height: 100vh;
-                    object-fit: cover;
-                }}
-                .skip-btn {{
-                    position: fixed;
-                    top: 20px;
-                    right: 25px;
-                    z-index: 999999;
-                    background: rgba(0, 0, 0, 0.6);
-                    color: white;
-                    border: 1px solid rgba(255, 255, 255, 0.7);
-                    border-radius: 6px;
-                    padding: 8px 18px;
-                    font-family: sans-serif;
-                    font-size: 14px;
-                    cursor: pointer;
-                    backdrop-filter: blur(4px);
-                }}
-                .skip-btn:hover {{
-                    background: rgba(255, 255, 255, 0.2);
-                }}
+                }
+                video {
+                    position: fixed !important;
+                    top: 0 !important;
+                    left: 0 !important;
+                    width: 100vw !important;
+                    height: 100vh !important;
+                    object-fit: cover !important;
+                    z-index: 1000 !important;
+                }
+                .stButton button {
+                    position: fixed !important;
+                    top: 20px !important;
+                    right: 25px !important;
+                    z-index: 10000 !important;
+                    background: rgba(0, 0, 0, 0.6) !important;
+                    color: white !important;
+                    border: 1px solid rgba(255, 255, 255, 0.7) !important;
+                    border-radius: 6px !important;
+                    padding: 8px 18px !important;
+                    font-family: sans-serif !important;
+                }
+                .stButton button:hover {
+                    background: rgba(255, 255, 255, 0.2) !important;
+                    border-color: white !important;
+                    color: white !important;
+                }
             </style>
-
-            <button class="skip-btn" onclick="finishIntro()">Skip Intro ✕</button>
-
-            <div class="video-fullscreen-wrap">
-                <video id="introVid" autoplay playsinline>
-                    <source src="data:video/mp4;base64,{encoded_video}" type="video/mp4">
-                </video>
-            </div>
-
-            <script>
-                const introVideo = document.getElementById("introVid");
-
-                function finishIntro() {{
-                    // Search document and parent frames for the trigger button
-                    const doc = window.parent ? window.parent.document : document;
-                    const allButtons = doc.querySelectorAll('button');
-                    for (let btn of allButtons) {{
-                        if (btn.innerText.includes("TRANSITION_SIGNAL_BUTTON")) {{
-                            btn.click();
-                            return;
-                        }}
-                    }}
-                }}
-
-                // Fires at the exact end of playback (audio + video)
-                introVideo.onended = function() {{
-                    finishIntro();
-                }};
-            </script>
             """,
             unsafe_allow_html=True,
         )
+
+        # Manual Skip button
+        if st.button("Skip Intro ✕"):
+            st.session_state["show_dashboard"] = True
+            st.rerun()
+
+        # Stream native video component directly
+        st.video(VIDEO_PATH, autoplay=True)
+
+        # Wait duration of the video + the safety buffer
+        raw_duration = get_video_duration(VIDEO_PATH)
+        total_wait_time = raw_duration + PLAYBACK_BUFFER
+        time.sleep(total_wait_time)
+
+        # Flip state and advance to dashboard
+        st.session_state["show_dashboard"] = True
+        st.rerun()
     else:
         st.session_state["show_dashboard"] = True
         st.rerun()
