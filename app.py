@@ -1,4 +1,5 @@
 import os
+import time
 import urllib.request
 import cv2
 import numpy as np
@@ -21,6 +22,11 @@ st.set_page_config(
 
 MODEL_PATH = "aircraft_defect_model_3datasets.pth"
 HF_MODEL_URL = "https://huggingface.co/Aditya-Mamarde/aircraft-defect-detector/resolve/main/aircraft_defect_model_3datasets.pth"
+VIDEO_PATH = "intro_animation.mp4"
+
+# Initialize Session State for Video Splash Screen
+if "show_dashboard" not in st.session_state:
+    st.session_state["show_dashboard"] = False
 
 
 # -------------------------------------------------------------------
@@ -74,13 +80,15 @@ except Exception as e:
 # -------------------------------------------------------------------
 def predict_defects(image_pil, confidence_threshold=0.5):
     """Runs inference on the input image and draws detection bounding boxes."""
-    img_tensor = F.to_tensor(image_pil).unsqueeze(0)
+    # Ensure image is strictly 3-channel RGB (fixes RGBA PNG RuntimeError)
+    image_rgb = image_pil.convert("RGB")
+    img_tensor = F.to_tensor(image_rgb).unsqueeze(0)
 
     with torch.no_grad():
         predictions = model(img_tensor)[0]
 
-    # Convert PIL image to OpenCV format for drawing
-    img_cv = np.array(image_pil.convert("RGB"))
+    # Convert PIL image to OpenCV BGR format for drawing
+    img_cv = np.array(image_rgb)
     img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
 
     boxes = predictions["boxes"].cpu().numpy()
@@ -125,56 +133,72 @@ def predict_defects(image_pil, confidence_threshold=0.5):
 
 
 # -------------------------------------------------------------------
-# Streamlit UI
+# SCREEN 1: Video Intro Splash Screen
 # -------------------------------------------------------------------
-st.title("✈️ Aircraft Surface Defect Detection System")
-st.write(
-    "Upload an image of an aircraft surface to identify structural defects in real-time."
-)
+if not st.session_state["show_dashboard"]:
+    st.title("✈️ Aircraft Surface Defect Detection System")
+    st.markdown("### System Demonstration & Overview")
 
-# Sidebar Controls
-st.sidebar.header("Settings")
-confidence_threshold = st.sidebar.slider(
-    "Detection Confidence Threshold",
-    min_value=0.05,
-    max_value=1.00,
-    value=0.30,
-    step=0.05,
-)
+    if os.path.exists(VIDEO_PATH):
+        st.video(VIDEO_PATH, autoplay=True)
+    else:
+        st.info("Intro video not found. You can proceed directly to the app.")
 
-# Render Video in Sidebar if available
-VIDEO_PATH = "intro_animation.mp4"
-if os.path.exists(VIDEO_PATH):
+    st.markdown("---")
+    if st.button("🚀 Enter Inspection Dashboard", type="primary"):
+        st.session_state["show_dashboard"] = True
+        st.rerun()
+
+# -------------------------------------------------------------------
+# SCREEN 2: Main Inspection Dashboard
+# -------------------------------------------------------------------
+else:
+    st.title("✈️ Aircraft Surface Defect Dashboard")
+    st.write(
+        "Upload an image of an aircraft surface to identify structural defects in real-time."
+    )
+
+    # Sidebar Controls
+    st.sidebar.header("Settings")
+    confidence_threshold = st.sidebar.slider(
+        "Detection Confidence Threshold",
+        min_value=0.05,
+        max_value=1.00,
+        value=0.30,
+        step=0.05,
+    )
+
     st.sidebar.markdown("---")
-    st.sidebar.subheader("System Preview")
-    st.sidebar.video(VIDEO_PATH)
+    if st.sidebar.button("◀ Replay Intro Video"):
+        st.session_state["show_dashboard"] = False
+        st.rerun()
 
-# File Upload Section
-uploaded_file = st.file_uploader(
-    "Upload an inspection image...", type=["jpg", "jpeg", "png"]
-)
+    # File Upload Section
+    uploaded_file = st.file_uploader(
+        "Upload an inspection image...", type=["jpg", "jpeg", "png"]
+    )
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file)
 
-    col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-    with col1:
-        st.subheader("Original Inspection Image")
-        st.image(image, use_container_width=True)
+        with col1:
+            st.subheader("Original Inspection Image")
+            st.image(image, use_container_width=True)
 
-    with col2:
-        st.subheader("Defect Detection Output")
-        with st.spinner("Analyzing aircraft surface..."):
-            result_img, count = predict_defects(
-                image, confidence_threshold=confidence_threshold
-            )
+        with col2:
+            st.subheader("Defect Detection Output")
+            with st.spinner("Analyzing aircraft surface..."):
+                result_img, count = predict_defects(
+                    image, confidence_threshold=confidence_threshold
+                )
 
-        st.image(result_img, use_container_width=True)
+            st.image(result_img, use_container_width=True)
 
-        if count > 0:
-            st.error(f"⚠️ Detections Found: {count} defect(s) identified.")
-        else:
-            st.success(
-                "✅ No surface defects detected above the chosen confidence threshold."
-            )
+            if count > 0:
+                st.error(f"⚠️ Detections Found: {count} defect(s) identified.")
+            else:
+                st.success(
+                    "✅ No surface defects detected above the chosen confidence threshold."
+                )
