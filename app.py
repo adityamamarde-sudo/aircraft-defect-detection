@@ -1,6 +1,5 @@
 import base64
 import os
-import time
 import urllib.request
 import cv2
 import numpy as np
@@ -116,72 +115,113 @@ def predict_defects(image_pil, confidence_threshold=0.5):
     return result_img, detections_found
 
 
-# Helper to get exact video duration
-def get_video_duration(file_path):
-    try:
-        cap = cv2.VideoCapture(file_path)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-        cap.release()
-        if fps > 0:
-            return frame_count / fps
-    except Exception:
-        pass
-    return 6.0  # fallback duration in seconds
-
-
 # -------------------------------------------------------------------
-# SCREEN 1: Full-Screen Intro Video
+# SCREEN 1: Event-Driven Full-Screen Video Intro
 # -------------------------------------------------------------------
 if not st.session_state["show_dashboard"]:
     if os.path.exists(VIDEO_PATH):
-        # Clean full-screen styling directly in Streamlit
+        with open(VIDEO_PATH, "rb") as f:
+            video_bytes = f.read()
+        encoded_video = base64.b64encode(video_bytes).decode("utf-8")
+
+        # Native bridge button that Streamlit listens to
+        if st.button("TRANSITION_SIGNAL_BUTTON", key="transition_trigger_btn"):
+            st.session_state["show_dashboard"] = True
+            st.rerun()
+
         st.markdown(
-            """
+            f"""
             <style>
-                header, footer, [data-testid="stSidebar"] {
+                header, footer, [data-testid="stSidebar"] {{
                     display: none !important;
-                }
-                .main .block-container {
+                }}
+                .main .block-container {{
                     padding: 0 !important;
                     margin: 0 !important;
                     max-width: 100vw !important;
                     height: 100vh !important;
                     background-color: black;
-                }
-                video {
-                    width: 100vw !important;
-                    height: 100vh !important;
-                    object-fit: cover !important;
-                }
-                .stButton button {
-                    position: fixed !important;
-                    top: 20px !important;
-                    right: 25px !important;
-                    z-index: 99999 !important;
-                    background: rgba(0, 0, 0, 0.7) !important;
-                    color: white !important;
-                    border: 1px solid white !important;
-                    border-radius: 4px !important;
-                }
+                }}
+                /* Hide the native Streamlit button visually */
+                button[data-testid="stBaseButton-secondary"]:has(div:contains("TRANSITION_SIGNAL_BUTTON")),
+                div:has(> button[key="transition_trigger_btn"]) {{
+                    display: none !important;
+                }}
+                div[data-testid="stButton"] {{
+                    position: fixed;
+                    top: -100px;
+                    left: -100px;
+                    opacity: 0;
+                    pointer-events: none;
+                }}
+                .video-fullscreen-wrap {{
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100vw;
+                    height: 100vh;
+                    background-color: black;
+                    z-index: 999998;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }}
+                video {{
+                    width: 100vw;
+                    height: 100vh;
+                    object-fit: cover;
+                }}
+                .skip-btn {{
+                    position: fixed;
+                    top: 20px;
+                    right: 25px;
+                    z-index: 999999;
+                    background: rgba(0, 0, 0, 0.6);
+                    color: white;
+                    border: 1px solid rgba(255, 255, 255, 0.7);
+                    border-radius: 6px;
+                    padding: 8px 18px;
+                    font-family: sans-serif;
+                    font-size: 14px;
+                    cursor: pointer;
+                    backdrop-filter: blur(4px);
+                }}
+                .skip-btn:hover {{
+                    background: rgba(255, 255, 255, 0.2);
+                }}
             </style>
+
+            <button class="skip-btn" onclick="finishIntro()">Skip Intro ✕</button>
+
+            <div class="video-fullscreen-wrap">
+                <video id="introVid" autoplay playsinline>
+                    <source src="data:video/mp4;base64,{encoded_video}" type="video/mp4">
+                </video>
+            </div>
+
+            <script>
+                const introVideo = document.getElementById("introVid");
+
+                function finishIntro() {{
+                    // Search document and parent frames for the trigger button
+                    const doc = window.parent ? window.parent.document : document;
+                    const allButtons = doc.querySelectorAll('button');
+                    for (let btn of allButtons) {{
+                        if (btn.innerText.includes("TRANSITION_SIGNAL_BUTTON")) {{
+                            btn.click();
+                            return;
+                        }}
+                    }}
+                }}
+
+                // Fires at the exact end of playback (audio + video)
+                introVideo.onended = function() {{
+                    finishIntro();
+                }};
+            </script>
             """,
             unsafe_allow_html=True,
         )
-
-        # Skip button available on top
-        if st.button("Skip Intro ✕"):
-            st.session_state["show_dashboard"] = True
-            st.rerun()
-
-        # Native, high-performance Streamlit video player with sound enabled
-        st.video(VIDEO_PATH, autoplay=True)
-
-        # Wait for video duration, then seamlessly switch to dashboard
-        duration = get_video_duration(VIDEO_PATH)
-        time.sleep(duration)
-        st.session_state["show_dashboard"] = True
-        st.rerun()
     else:
         st.session_state["show_dashboard"] = True
         st.rerun()
