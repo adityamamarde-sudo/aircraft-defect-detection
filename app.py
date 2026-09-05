@@ -24,7 +24,10 @@ MODEL_PATH = "aircraft_defect_model_3datasets.pth"
 HF_MODEL_URL = "https://huggingface.co/Aditya-Mamarde/aircraft-defect-detector/resolve/main/aircraft_defect_model_3datasets.pth"
 VIDEO_PATH = "intro_animation.mp4"
 
-# Initialize Session State
+# Handle Transition via Query Parameters or Session State
+if st.query_params.get("dashboard") == "true":
+    st.session_state["show_dashboard"] = True
+
 if "show_dashboard" not in st.session_state:
     st.session_state["show_dashboard"] = False
 
@@ -44,7 +47,6 @@ def load_defect_detector():
     device = torch.device("cpu")
     checkpoint = torch.load(MODEL_PATH, map_location=device)
 
-    # Rebuild Faster R-CNN architecture matching trained weights (6 classes)
     if isinstance(checkpoint, torch.nn.Module):
         model = checkpoint
     else:
@@ -67,7 +69,6 @@ def load_defect_detector():
     return model
 
 
-# Load model at startup
 try:
     model = load_defect_detector()
 except Exception as e:
@@ -128,7 +129,7 @@ def predict_defects(image_pil, confidence_threshold=0.5):
 
 
 # -------------------------------------------------------------------
-# SCREEN 1: Full-Screen Audio-Enabled Video Intro with Unmute Overlay
+# SCREEN 1: Instant Auto-Play Video Intro
 # -------------------------------------------------------------------
 if not st.session_state["show_dashboard"]:
     if os.path.exists(VIDEO_PATH):
@@ -136,7 +137,6 @@ if not st.session_state["show_dashboard"]:
             video_bytes = video_file.read()
         encoded_video = base64.b64encode(video_bytes).decode("utf-8")
 
-        # Full-screen CSS with click-to-play audio overlay satisfying browser rules
         video_html = f"""
         <style>
             header, footer, [data-testid="stSidebar"] {{
@@ -170,53 +170,59 @@ if not st.session_state["show_dashboard"]:
                 height: 100vh;
                 object-fit: cover;
             }}
-            .play-overlay {{
-                position: absolute;
+            .skip-btn {{
+                position: fixed;
+                top: 20px;
+                right: 25px;
                 z-index: 1000000;
-                background: rgba(0, 0, 0, 0.75);
-                color: white;
-                padding: 20px 40px;
-                border-radius: 8px;
+                background: rgba(0, 0, 0, 0.6);
+                color: #ffffff;
+                border: 1px solid rgba(255, 255, 255, 0.7);
+                border-radius: 6px;
+                padding: 8px 16px;
                 font-family: sans-serif;
-                font-size: 20px;
+                font-size: 14px;
                 cursor: pointer;
-                border: 2px solid white;
-                text-align: center;
+                backdrop-filter: blur(4px);
+            }}
+            .skip-btn:hover {{
+                background: rgba(255, 255, 255, 0.2);
             }}
         </style>
 
-        <div class="video-container" id="container">
-            <div class="play-overlay" id="playBtn" onclick="playVideoWithAudio()">
-                ▶ Click to Start with Audio
-            </div>
-            <video id="introVideo" playsinline>
+        <div class="video-container">
+            <button class="skip-btn" onclick="finishIntro()">Skip Intro ✕</button>
+            <!-- Starts muted to guarantee instant autoplay on all browsers, then attempts audio -->
+            <video id="introVideo" autoplay muted playsinline>
                 <source src="data:video/mp4;base64,{encoded_video}" type="video/mp4">
             </video>
         </div>
 
         <script>
-            function playVideoWithAudio() {{
-                var video = document.getElementById("introVideo");
-                var overlay = document.getElementById("playBtn");
-                overlay.style.display = "none";
-                video.muted = false;
-                video.play();
+            const video = document.getElementById("introVideo");
 
-                video.onended = function() {{
-                    const btn = window.parent.document.querySelector('button[key="hidden_trigger_btn"]');
-                    if (btn) {{
-                        btn.click();
-                    }}
-                }};
+            // Attempt unmuting if browser allows it
+            video.play().then(() => {{
+                video.muted = false;
+            }}).catch(() => {{
+                // Browser enforces muted autoplay
+                console.log("Audio autoplay restricted by browser policy.");
+            }});
+
+            function finishIntro() {{
+                try {{
+                    window.parent.location.search = "?dashboard=true";
+                }} catch (e) {{
+                    window.location.search = "?dashboard=true";
+                }}
             }}
+
+            video.onended = finishIntro;
         </script>
         """
         st.components.v1.html(video_html, height=1000)
-
-    # Hidden background button automatically invoked when video ends
-    if st.button(
-        "HiddenTrigger", key="hidden_trigger_btn", help="Trigger dashboard"
-    ):
+    else:
+        # Fallback if video file is missing
         st.session_state["show_dashboard"] = True
         st.rerun()
 
@@ -241,6 +247,7 @@ else:
 
     st.sidebar.markdown("---")
     if st.sidebar.button("◀ Replay Intro Video"):
+        st.query_params.clear()
         st.session_state["show_dashboard"] = False
         st.rerun()
 
