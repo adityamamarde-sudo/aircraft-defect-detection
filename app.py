@@ -1,15 +1,17 @@
 import os
 import urllib.request
-import numpy as np
 import cv2
+import numpy as np
 from PIL import Image
+import streamlit as st
 import torch
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 import torchvision.transforms.functional as F
-import streamlit as st
 
+# -------------------------------------------------------------------
 # Page Configuration
+# -------------------------------------------------------------------
 st.set_page_config(
     page_title="Aircraft Surface Defect Detection",
     page_icon="✈️",
@@ -36,11 +38,10 @@ def load_defect_detector():
     device = torch.device("cpu")
     checkpoint = torch.load(MODEL_PATH, map_location=device)
 
-    # Check if checkpoint is a direct nn.Module or a state_dict
+    # Rebuild Faster R-CNN architecture matching trained weights (6 classes)
     if isinstance(checkpoint, torch.nn.Module):
         model = checkpoint
     else:
-        # Rebuild Faster R-CNN architecture with 6 classes (1 background + 5 defect types)
         num_classes = 6
         model = torchvision.models.detection.fasterrcnn_resnet50_fpn(
             weights=None
@@ -60,7 +61,7 @@ def load_defect_detector():
     return model
 
 
-# Load the model
+# Load the model at startup
 try:
     model = load_defect_detector()
 except Exception as e:
@@ -131,7 +132,7 @@ st.write(
     "Upload an image of an aircraft surface to identify structural defects in real-time."
 )
 
-# Sidebar
+# Sidebar Controls
 st.sidebar.header("Settings")
 confidence_threshold = st.sidebar.slider(
     "Detection Confidence Threshold",
@@ -141,7 +142,14 @@ confidence_threshold = st.sidebar.slider(
     step=0.05,
 )
 
-# File Upload
+# Render Video in Sidebar if available
+VIDEO_PATH = "intro_animation.mp4"
+if os.path.exists(VIDEO_PATH):
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("System Preview")
+    st.sidebar.video(VIDEO_PATH)
+
+# File Upload Section
 uploaded_file = st.file_uploader(
     "Upload an inspection image...", type=["jpg", "jpeg", "png"]
 )
@@ -153,7 +161,7 @@ if uploaded_file is not None:
 
     with col1:
         st.subheader("Original Inspection Image")
-        st.image(image, use_column_width=True)
+        st.image(image, use_container_width=True)
 
     with col2:
         st.subheader("Defect Detection Output")
@@ -162,7 +170,7 @@ if uploaded_file is not None:
                 image, confidence_threshold=confidence_threshold
             )
 
-        st.image(result_img, use_column_width=True)
+        st.image(result_img, use_container_width=True)
 
         if count > 0:
             st.error(f"⚠️ Detections Found: {count} defect(s) identified.")
