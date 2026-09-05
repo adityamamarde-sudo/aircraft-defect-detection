@@ -40,8 +40,8 @@ def load_defect_detector():
     if isinstance(checkpoint, torch.nn.Module):
         model = checkpoint
     else:
-        # Rebuild standard Faster R-CNN architecture (4 classes: background + defects)
-        num_classes = 4
+        # Rebuild Faster R-CNN architecture with 6 classes (1 background + 5 defect types)
+        num_classes = 6
         model = torchvision.models.detection.fasterrcnn_resnet50_fpn(
             weights=None
         )
