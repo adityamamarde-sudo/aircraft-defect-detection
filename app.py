@@ -17,7 +17,7 @@ st.set_page_config(
     page_title="Aircraft Surface Defect Detection",
     page_icon="✈️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 MODEL_PATH = "aircraft_defect_model_3datasets.pth"
@@ -128,49 +128,97 @@ def predict_defects(image_pil, confidence_threshold=0.5):
 
 
 # -------------------------------------------------------------------
-# SCREEN 1: Full-Screen Autoplay Intro Video with Auto-Transition
+# SCREEN 1: Full-Screen Audio-Enabled Video Intro with Unmute Overlay
 # -------------------------------------------------------------------
 if not st.session_state["show_dashboard"]:
     if os.path.exists(VIDEO_PATH):
-        # Convert video to base64 for seamless HTML rendering
         with open(VIDEO_PATH, "rb") as video_file:
             video_bytes = video_file.read()
         encoded_video = base64.b64encode(video_bytes).decode("utf-8")
 
-        # HTML5 Video element with JavaScript auto-click on finish
+        # Full-screen CSS with click-to-play audio overlay satisfying browser rules
         video_html = f"""
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%;">
-            <video id="introVideo" width="100%" style="max-height: 80vh; border-radius: 10px;" autoplay muted playsinline>
+        <style>
+            header, footer, [data-testid="stSidebar"] {{
+                display: none !important;
+            }}
+            .main .block-container {{
+                padding: 0 !important;
+                margin: 0 !important;
+                max-width: 100vw !important;
+            }}
+            body {{
+                margin: 0;
+                padding: 0;
+                background-color: black;
+                overflow: hidden;
+            }}
+            .video-container {{
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background-color: black;
+                z-index: 999999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }}
+            video {{
+                width: 100vw;
+                height: 100vh;
+                object-fit: cover;
+            }}
+            .play-overlay {{
+                position: absolute;
+                z-index: 1000000;
+                background: rgba(0, 0, 0, 0.75);
+                color: white;
+                padding: 20px 40px;
+                border-radius: 8px;
+                font-family: sans-serif;
+                font-size: 20px;
+                cursor: pointer;
+                border: 2px solid white;
+                text-align: center;
+            }}
+        </style>
+
+        <div class="video-container" id="container">
+            <div class="play-overlay" id="playBtn" onclick="playVideoWithAudio()">
+                ▶ Click to Start with Audio
+            </div>
+            <video id="introVideo" playsinline>
                 <source src="data:video/mp4;base64,{encoded_video}" type="video/mp4">
-                Your browser does not support the video tag.
             </video>
         </div>
+
         <script>
-            var video = document.getElementById("introVideo");
-            video.onended = function() {{
-                // Trigger transition button click when video ends
-                const buttons = window.parent.document.querySelectorAll('button');
-                for (let btn of buttons) {{
-                    if (btn.innerText.includes("Skip Intro") || btn.innerText.includes("Dashboard")) {{
+            function playVideoWithAudio() {{
+                var video = document.getElementById("introVideo");
+                var overlay = document.getElementById("playBtn");
+                overlay.style.display = "none";
+                video.muted = false;
+                video.play();
+
+                video.onended = function() {{
+                    const btn = window.parent.document.querySelector('button[key="hidden_trigger_btn"]');
+                    if (btn) {{
                         btn.click();
-                        break;
                     }}
-                }}
-            }};
+                }};
+            }}
         </script>
         """
-        st.components.v1.html(video_html, height=550)
+        st.components.v1.html(video_html, height=1000)
 
-    # Fallback/Skip button (hidden automatically when JS triggers it on end)
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button(
-            "⏩ Skip Intro to Dashboard",
-            type="primary",
-            use_container_width=True,
-        ):
-            st.session_state["show_dashboard"] = True
-            st.rerun()
+    # Hidden background button automatically invoked when video ends
+    if st.button(
+        "HiddenTrigger", key="hidden_trigger_btn", help="Trigger dashboard"
+    ):
+        st.session_state["show_dashboard"] = True
+        st.rerun()
 
 # -------------------------------------------------------------------
 # SCREEN 2: Main Inspection Dashboard
