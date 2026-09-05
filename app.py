@@ -1,5 +1,6 @@
 import base64
 import os
+import time
 import urllib.request
 import cv2
 import numpy as np
@@ -24,10 +25,6 @@ MODEL_PATH = "aircraft_defect_model_3datasets.pth"
 HF_MODEL_URL = "https://huggingface.co/Aditya-Mamarde/aircraft-defect-detector/resolve/main/aircraft_defect_model_3datasets.pth"
 VIDEO_PATH = "intro_animation.mp4"
 
-# Handle Transition via Query Parameters or Session State
-if st.query_params.get("dashboard") == "true":
-    st.session_state["show_dashboard"] = True
-
 if "show_dashboard" not in st.session_state:
     st.session_state["show_dashboard"] = False
 
@@ -37,11 +34,8 @@ if "show_dashboard" not in st.session_state:
 # -------------------------------------------------------------------
 @st.cache_resource
 def load_defect_detector():
-    """Downloads weights from Hugging Face if missing and initializes the model."""
     if not os.path.exists(MODEL_PATH):
-        with st.spinner(
-            "Downloading AI model weights from Hugging Face (166 MB)... Please wait."
-        ):
+        with st.spinner("Downloading AI model weights (166 MB)..."):
             urllib.request.urlretrieve(HF_MODEL_URL, MODEL_PATH)
 
     device = torch.device("cpu")
@@ -51,13 +45,9 @@ def load_defect_detector():
         model = checkpoint
     else:
         num_classes = 6
-        model = torchvision.models.detection.fasterrcnn_resnet50_fpn(
-            weights=None
-        )
+        model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
         in_features = model.roi_heads.box_predictor.cls_score.in_features
-        model.roi_heads.box_predictor = FastRCNNPredictor(
-            in_features, num_classes
-        )
+        model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
 
         if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
             model.load_state_dict(checkpoint["model_state_dict"])
@@ -80,7 +70,6 @@ except Exception as e:
 # Inference Helper Function
 # -------------------------------------------------------------------
 def predict_defects(image_pil, confidence_threshold=0.5):
-    """Runs inference on the input image and draws detection bounding boxes."""
     image_rgb = image_pil.convert("RGB")
     img_tensor = F.to_tensor(image_rgb).unsqueeze(0)
 
@@ -102,7 +91,6 @@ def predict_defects(image_pil, confidence_threshold=0.5):
             x1, y1, x2, y2 = box.astype(int)
 
             cv2.rectangle(img_cv, (x1, y1), (x2, y2), (0, 0, 255), 2)
-
             label_text = f"Defect Class {label}: {score:.2f}"
             (text_w, text_h), _ = cv2.getTextSize(
                 label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
@@ -128,101 +116,73 @@ def predict_defects(image_pil, confidence_threshold=0.5):
     return result_img, detections_found
 
 
+# Helper to get exact video duration
+def get_video_duration(file_path):
+    try:
+        cap = cv2.VideoCapture(file_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        cap.release()
+        if fps > 0:
+            return frame_count / fps
+    except Exception:
+        pass
+    return 6.0  # fallback duration in seconds
+
+
 # -------------------------------------------------------------------
-# SCREEN 1: Instant Auto-Play Video Intro
+# SCREEN 1: Full-Screen Intro Video
 # -------------------------------------------------------------------
 if not st.session_state["show_dashboard"]:
     if os.path.exists(VIDEO_PATH):
-        with open(VIDEO_PATH, "rb") as video_file:
-            video_bytes = video_file.read()
-        encoded_video = base64.b64encode(video_bytes).decode("utf-8")
+        # Clean full-screen styling directly in Streamlit
+        st.markdown(
+            """
+            <style>
+                header, footer, [data-testid="stSidebar"] {
+                    display: none !important;
+                }
+                .main .block-container {
+                    padding: 0 !important;
+                    margin: 0 !important;
+                    max-width: 100vw !important;
+                    height: 100vh !important;
+                    background-color: black;
+                }
+                video {
+                    width: 100vw !important;
+                    height: 100vh !important;
+                    object-fit: cover !important;
+                }
+                .stButton button {
+                    position: fixed !important;
+                    top: 20px !important;
+                    right: 25px !important;
+                    z-index: 99999 !important;
+                    background: rgba(0, 0, 0, 0.7) !important;
+                    color: white !important;
+                    border: 1px solid white !important;
+                    border-radius: 4px !important;
+                }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
 
-        video_html = f"""
-        <style>
-            header, footer, [data-testid="stSidebar"] {{
-                display: none !important;
-            }}
-            .main .block-container {{
-                padding: 0 !important;
-                margin: 0 !important;
-                max-width: 100vw !important;
-            }}
-            body {{
-                margin: 0;
-                padding: 0;
-                background-color: black;
-                overflow: hidden;
-            }}
-            .video-container {{
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100vw;
-                height: 100vh;
-                background-color: black;
-                z-index: 999999;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }}
-            video {{
-                width: 100vw;
-                height: 100vh;
-                object-fit: cover;
-            }}
-            .skip-btn {{
-                position: fixed;
-                top: 20px;
-                right: 25px;
-                z-index: 1000000;
-                background: rgba(0, 0, 0, 0.6);
-                color: #ffffff;
-                border: 1px solid rgba(255, 255, 255, 0.7);
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-family: sans-serif;
-                font-size: 14px;
-                cursor: pointer;
-                backdrop-filter: blur(4px);
-            }}
-            .skip-btn:hover {{
-                background: rgba(255, 255, 255, 0.2);
-            }}
-        </style>
+        # Skip button available on top
+        if st.button("Skip Intro ✕"):
+            st.session_state["show_dashboard"] = True
+            st.rerun()
 
-        <div class="video-container">
-            <button class="skip-btn" onclick="finishIntro()">Skip Intro ✕</button>
-            <!-- Starts muted to guarantee instant autoplay on all browsers, then attempts audio -->
-            <video id="introVideo" autoplay muted playsinline>
-                <source src="data:video/mp4;base64,{encoded_video}" type="video/mp4">
-            </video>
-        </div>
+        # Native, high-performance Streamlit video player with sound enabled
+        st.video(VIDEO_PATH, autoplay=True)
 
-        <script>
-            const video = document.getElementById("introVideo");
-
-            // Attempt unmuting if browser allows it
-            video.play().then(() => {{
-                video.muted = false;
-            }}).catch(() => {{
-                // Browser enforces muted autoplay
-                console.log("Audio autoplay restricted by browser policy.");
-            }});
-
-            function finishIntro() {{
-                try {{
-                    window.parent.location.search = "?dashboard=true";
-                }} catch (e) {{
-                    window.location.search = "?dashboard=true";
-                }}
-            }}
-
-            video.onended = finishIntro;
-        </script>
-        """
-        st.components.v1.html(video_html, height=1000)
+        # Wait for video duration, then seamlessly switch to dashboard
+        duration = get_video_duration(VIDEO_PATH)
+        time.sleep(duration)
+        st.session_state["show_dashboard"] = True
+        st.rerun()
     else:
-        # Fallback if video file is missing
         st.session_state["show_dashboard"] = True
         st.rerun()
 
@@ -247,7 +207,6 @@ else:
 
     st.sidebar.markdown("---")
     if st.sidebar.button("◀ Replay Intro Video"):
-        st.query_params.clear()
         st.session_state["show_dashboard"] = False
         st.rerun()
 
