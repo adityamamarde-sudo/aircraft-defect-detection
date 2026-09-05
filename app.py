@@ -19,3 +19,7 @@ def load_defect_detector():
     model = torch.load(MODEL_PATH, map_location=device)
     model.eval()
     return model
+
+
+# Load model at startup
+model = load_defect_detector()
