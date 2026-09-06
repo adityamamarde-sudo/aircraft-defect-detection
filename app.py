@@ -1,259 +1,234 @@
 import os
-import time
-import urllib.request
-import cv2
-import numpy as np
-from PIL import Image
-import streamlit as st
+import base64
 import torch
 import torchvision
+import streamlit as st
+import streamlit.components.v1 as components
+from PIL import Image
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import torchvision.transforms as T
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-import torchvision.transforms.functional as F
 
-# -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Page Configuration
-# -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Aircraft Surface Defect Detection",
-    page_icon="✈️",
-    layout="wide",
-    initial_sidebar_state="collapsed",
+    page_title="Aircraft Surface Defect Detection", 
+    page_icon="✈️", 
+    layout="wide", 
+    initial_sidebar_state="expanded" if st.session_state.get("intro_done", False) else "collapsed"
 )
 
-MODEL_PATH = "aircraft_defect_model_3datasets.pth"
-HF_MODEL_URL = "https://huggingface.co/Aditya-Mamarde/aircraft-defect-detector/resolve/main/aircraft_defect_model_3datasets.pth"
-VIDEO_PATH = "intro_animation.mp4"
+# Initialize Session State Flag
+if "intro_done" not in st.session_state:
+    st.session_state.intro_done = False
 
-# Buffer (in seconds) to account for browser loading and prevent cutting off trailing audio
-PLAYBACK_BUFFER = 2.0
+# -----------------------------------------------------------------------------
+# STEP 1: Full-Screen Splash Intro Sequence
+# -----------------------------------------------------------------------------
+if not st.session_state.intro_done:
+    video_path = os.path.join(os.path.dirname(__file__), "intro_animation.mp4")
 
-if "show_dashboard" not in st.session_state:
-    st.session_state["show_dashboard"] = False
+    # Native Python trigger button (Hidden behind iframe, auto-clicked by JS)
+    if st.button("Complete Intro", key="auto_finish_btn"):
+        st.session_state.intro_done = True
+        st.rerun()
 
+    if os.path.exists(video_path):
+        with open(video_path, "rb") as vf:
+            video_b64 = base64.b64encode(vf.read()).decode()
 
-# -------------------------------------------------------------------
-# Model Loading Logic
-# -------------------------------------------------------------------
-@st.cache_resource
-def load_defect_detector():
-    if not os.path.exists(MODEL_PATH):
-        with st.spinner("Downloading AI model weights (166 MB)..."):
-            urllib.request.urlretrieve(HF_MODEL_URL, MODEL_PATH)
+        html_code = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                body, html {{ width: 100%; height: 100%; background-color: #000; overflow: hidden; font-family: sans-serif; }}
+                #container {{
+                    position: fixed;
+                    top: 0; left: 0; width: 100vw; height: 100vh;
+                    display: flex; justify-content: center; align-items: center;
+                    background-color: #000; z-index: 99999;
+                }}
+                video {{
+                    width: 100vw; height: 100vh; object-fit: cover; display: none;
+                }}
+                .btn {{
+                    padding: 20px 44px; font-size: 24px; font-weight: bold; color: #fff;
+                    background: linear-gradient(135deg, #0072ff, #00c6ff);
+                    border: none; border-radius: 50px; cursor: pointer;
+                    box-shadow: 0px 4px 25px rgba(0, 198, 255, 0.6);
+                    transition: transform 0.2s; z-index: 100000;
+                }}
+                .btn:hover {{ transform: scale(1.05); }}
+            </style>
+        </head>
+        <body>
+            <div id="container">
+                <button class="btn" id="startBtn" onclick="startExperience()">▶ Launch System Experience</button>
+                <video id="introVid" playsinline>
+                    <source src="data:video/mp4;base64,{video_b64}" type="video/mp4">
+                </video>
+            </div>
 
-    device = torch.device("cpu")
-    checkpoint = torch.load(MODEL_PATH, map_location=device)
+            <script>
+                function triggerStreamlitFinish() {{
+                    // Target the parent Streamlit button and click it programmatically
+                    var parentDoc = window.parent.document;
+                    var btn = parentDoc.querySelector('button[aria-label="Complete Intro"]');
+                    if (btn) {{
+                        btn.click();
+                    }} else {{
+                        // Fallback click search
+                        var buttons = parentDoc.querySelectorAll('button');
+                        for (var i = 0; i < buttons.length; i++) {{
+                            if (buttons[i].innerText.includes('Complete Intro')) {{
+                                buttons[i].click();
+                                break;
+                            }}
+                        }}
+                    }}
+                }}
 
-    if isinstance(checkpoint, torch.nn.Module):
-        model = checkpoint
+                function startExperience() {{
+                    var btn = document.getElementById('startBtn');
+                    var vid = document.getElementById('introVid');
+                    
+                    btn.style.display = 'none';
+                    vid.style.display = 'block';
+                    
+                    vid.play().then(() => {{
+                        vid.onended = function() {{
+                            triggerStreamlitFinish();
+                        }};
+                        // Fallback auto-trigger at 9.5 seconds
+                        setTimeout(triggerStreamlitFinish, 9500);
+                    }}).catch(err => {{
+                        console.error('Playback error:', err);
+                        triggerStreamlitFinish();
+                    }});
+                }}
+            </script>
+        </body>
+        </html>
+        """
+
+        st.markdown("""
+            <style>
+                [data-testid="stHeader"] {display: none !important;}
+                .main .block-container { padding: 0 !important; max-width: 100vw !important; }
+                
+                /* Hide native button, keep accessible in DOM */
+                div[data-testid="stButton"] {
+                    position: absolute !important;
+                    top: -9999px !important;
+                    left: -9999px !important;
+                    opacity: 0 !important;
+                }
+                
+                iframe { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; border: none; z-index: 9999; }
+            </style>
+        """, unsafe_allow_html=True)
+
+        components.html(html_code, height=1000)
+        st.stop()
     else:
-        num_classes = 6
-        model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
-        in_features = model.roi_heads.box_predictor.cls_score.in_features
-        model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+        st.session_state.intro_done = True
+        st.rerun()
 
-        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-            model.load_state_dict(checkpoint["model_state_dict"])
-        elif isinstance(checkpoint, dict):
-            model.load_state_dict(checkpoint)
+# -----------------------------------------------------------------------------
+# STEP 2: Main Application Interface (Dashboard)
+# -----------------------------------------------------------------------------
+st.title("✈️ Aircraft Surface Defect Detection System")
+st.write("Upload an image of an aircraft surface to identify structural defects in real-time.")
 
+# Sidebar Controls
+st.sidebar.header("Settings")
+confidence_threshold = st.sidebar.slider(
+    "Detection Confidence Threshold", 
+    min_value=0.1, 
+    max_value=1.0, 
+    value=0.55, 
+    step=0.05
+)
+
+if st.sidebar.button("Replay Intro Video"):
+    st.session_state.intro_done = False
+    st.rerun()
+
+# Device & Model Setup
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "aircraft_defect_model_3datasets.pth")
+NUM_CLASSES = 6
+
+@st.cache_resource
+def load_model():
+    if not os.path.exists(MODEL_PATH):
+        st.error(f"Model file not found at: {MODEL_PATH}")
+        return None
+    
+    model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, NUM_CLASSES)
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
     model.to(device)
     model.eval()
     return model
 
+model = load_model()
 
-try:
-    model = load_defect_detector()
-except Exception as e:
-    st.error(f"Error loading model: {e}")
-    st.stop()
+# File Uploader & Processing
+uploaded_file = st.file_uploader("Upload an inspection image...", type=["jpg", "jpeg", "png"])
 
+if uploaded_file is not None and model is not None:
+    image = Image.open(uploaded_file).convert("RGB")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Uploaded Inspection Image")
+        st.image(image, use_container_width=True)
 
-# -------------------------------------------------------------------
-# Video Duration Helper
-# -------------------------------------------------------------------
-def get_video_duration(file_path):
-    """Calculates exact duration of the video in seconds."""
-    try:
-        cap = cv2.VideoCapture(file_path)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-        cap.release()
-        if fps > 0 and frame_count > 0:
-            return frame_count / fps
-    except Exception:
-        pass
-    return 8.0  # Fallback duration if metadata cannot be read
+    transform = T.ToTensor()
+    img_tensor = transform(image).unsqueeze(0).to(device)
 
+    with st.spinner("Analyzing image structure..."):
+        with torch.no_grad():
+            predictions = model(img_tensor)
 
-# -------------------------------------------------------------------
-# Inference Helper Function
-# -------------------------------------------------------------------
-def predict_defects(image_pil, confidence_threshold=0.5):
-    image_rgb = image_pil.convert("RGB")
-    img_tensor = F.to_tensor(image_rgb).unsqueeze(0)
+    boxes = predictions[0]['boxes'].cpu()
+    scores = predictions[0]['scores'].cpu()
+    labels = predictions[0]['labels'].cpu()
 
-    with torch.no_grad():
-        predictions = model(img_tensor)[0]
+    fig, ax = plt.subplots(1, figsize=(10, 8))
+    ax.imshow(image)
 
-    img_cv = np.array(image_rgb)
-    img_cv = cv2.cvtColor(img_cv, cv2.COLOR_RGB2BGR)
-
-    boxes = predictions["boxes"].cpu().numpy()
-    scores = predictions["scores"].cpu().numpy()
-    labels = predictions["labels"].cpu().numpy()
-
-    detections_found = 0
-
+    detected_count = 0
     for box, score, label in zip(boxes, scores, labels):
         if score >= confidence_threshold:
-            detections_found += 1
-            x1, y1, x2, y2 = box.astype(int)
-
-            cv2.rectangle(img_cv, (x1, y1), (x2, y2), (0, 0, 255), 2)
-            label_text = f"Defect Class {label}: {score:.2f}"
-            (text_w, text_h), _ = cv2.getTextSize(
-                label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
+            x1, y1, x2, y2 = box.numpy()
+            rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=3, edgecolor='red', facecolor='none')
+            ax.add_patch(rect)
+            ax.text(
+                x1, y1 - 10, 
+                f"Class {label.item()} ({score.item()*100:.1f}%)", 
+                bbox=dict(facecolor='red', alpha=0.7), 
+                color='white', 
+                weight='bold', 
+                fontsize=12
             )
-            cv2.rectangle(
-                img_cv,
-                (x1, y1 - text_h - 4),
-                (x1 + text_w, y1),
-                (0, 0, 255),
-                -1,
-            )
-            cv2.putText(
-                img_cv,
-                label_text,
-                (x1, y1 - 2),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (255, 255, 255),
-                1,
-            )
+            detected_count += 1
 
-    result_img = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
-    return result_img, detections_found
+    plt.axis("off")
 
-
-# -------------------------------------------------------------------
-# SCREEN 1: Full-Screen Intro Video (Buffered Auto-Transition)
-# -------------------------------------------------------------------
-if not st.session_state["show_dashboard"]:
-    if os.path.exists(VIDEO_PATH):
-        st.markdown(
-            """
-            <style>
-                header, footer, [data-testid="stSidebar"] {
-                    display: none !important;
-                }
-                .main .block-container {
-                    padding: 0 !important;
-                    margin: 0 !important;
-                    max-width: 100vw !important;
-                    height: 100vh !important;
-                    background-color: black;
-                }
-                video {
-                    position: fixed !important;
-                    top: 0 !important;
-                    left: 0 !important;
-                    width: 100vw !important;
-                    height: 100vh !important;
-                    object-fit: cover !important;
-                    z-index: 1000 !important;
-                }
-                .stButton button {
-                    position: fixed !important;
-                    top: 20px !important;
-                    right: 25px !important;
-                    z-index: 10000 !important;
-                    background: rgba(0, 0, 0, 0.6) !important;
-                    color: white !important;
-                    border: 1px solid rgba(255, 255, 255, 0.7) !important;
-                    border-radius: 6px !important;
-                    padding: 8px 18px !important;
-                    font-family: sans-serif !important;
-                }
-                .stButton button:hover {
-                    background: rgba(255, 255, 255, 0.2) !important;
-                    border-color: white !important;
-                    color: white !important;
-                }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        # Manual Skip button
-        if st.button("Skip Intro ✕"):
-            st.session_state["show_dashboard"] = True
-            st.rerun()
-
-        # Stream native video component directly
-        st.video(VIDEO_PATH, autoplay=True)
-
-        # Wait duration of the video + the safety buffer
-        raw_duration = get_video_duration(VIDEO_PATH)
-        total_wait_time = raw_duration + PLAYBACK_BUFFER
-        time.sleep(total_wait_time)
-
-        # Flip state and advance to dashboard
-        st.session_state["show_dashboard"] = True
-        st.rerun()
-    else:
-        st.session_state["show_dashboard"] = True
-        st.rerun()
-
-# -------------------------------------------------------------------
-# SCREEN 2: Main Inspection Dashboard
-# -------------------------------------------------------------------
-else:
-    st.title("✈️ Aircraft Surface Defect Detection System")
-    st.write(
-        "Upload an image of an aircraft surface to identify structural defects in real-time."
-    )
-
-    # Sidebar Controls
-    st.sidebar.header("Settings")
-    confidence_threshold = st.sidebar.slider(
-        "Detection Confidence Threshold",
-        min_value=0.05,
-        max_value=1.00,
-        value=0.30,
-        step=0.05,
-    )
-
-    st.sidebar.markdown("---")
-    if st.sidebar.button("◀ Replay Intro Video"):
-        st.session_state["show_dashboard"] = False
-        st.rerun()
-
-    # File Upload Section
-    uploaded_file = st.file_uploader(
-        "Upload an inspection image...", type=["jpg", "jpeg", "png"]
-    )
-
-    if uploaded_file is not None:
-        image = Image.open(uploaded_file)
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.subheader("Original Inspection Image")
-            st.image(image, use_container_width=True)
-
-        with col2:
-            st.subheader("Defect Detection Output")
-            with st.spinner("Analyzing aircraft surface..."):
-                result_img, count = predict_defects(
-                    image, confidence_threshold=confidence_threshold
-                )
-
-            st.image(result_img, use_container_width=True)
-
-            if count > 0:
-                st.error(f"⚠️ Detections Found: {count} defect(s) identified.")
-            else:
-                st.success(
-                    "✅ No surface defects detected above the chosen confidence threshold."
-                )
+    with col2:
+        st.subheader("AI Detection Output")
+        st.pyplot(fig)
+        plt.close(fig)
+        
+        if detected_count > 0:
+            st.error(f"Detected **{detected_count}** defect(s) above {int(confidence_threshold*100)}% confidence threshold.")
+        else:
+            st.success("No defects detected above the threshold.")
