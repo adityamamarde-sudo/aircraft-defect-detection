@@ -1,0 +1,16 @@
+<<<<<<< HEAD
+torch
+torchvision
+streamlit
+pillow
+matplotlib
+opencv-python-headless
+=======
+streamlit
+torch
+torchvision
+opencv-python-headless
+numpy
+pillow
+
+>>>>>>> 38483b6bed667b94f0f0f3690e0739c08aae2840
