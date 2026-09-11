@@ -164,7 +164,7 @@ NUM_CLASSES = 6
 if not os.path.exists(MODEL_PATH):
     with st.spinner("Downloading model weights from Hugging Face... Please wait."):
         # REPLACE THE URL BELOW with your actual Hugging Face raw file download link
-        hf_url = "https://huggingface.co/Aditya-Mamarde/aircraft-defect-detector/resolve/main/aircraft_defect_model_3datasets.pth"
+        hf_url = "https://huggingface.co/Aditya-Mamarde/aircraft-defect-detector/raw/main/aircraft_defect_model_3datasets.pth"
         try:
             urllib.request.urlretrieve(hf_url, MODEL_PATH)
         except Exception as e:
