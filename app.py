@@ -1,5 +1,6 @@
 import os
 import base64
+import urllib.request
 import torch
 import torchvision
 import streamlit as st
@@ -75,13 +76,11 @@ if not st.session_state.intro_done:
 
             <script>
                 function triggerStreamlitFinish() {{
-                    // Target the parent Streamlit button and click it programmatically
                     var parentDoc = window.parent.document;
                     var btn = parentDoc.querySelector('button[aria-label="Complete Intro"]');
                     if (btn) {{
                         btn.click();
                     }} else {{
-                        // Fallback click search
                         var buttons = parentDoc.querySelectorAll('button');
                         for (var i = 0; i < buttons.length; i++) {{
                             if (buttons[i].innerText.includes('Complete Intro')) {{
@@ -103,7 +102,6 @@ if not st.session_state.intro_done:
                         vid.onended = function() {{
                             triggerStreamlitFinish();
                         }};
-                        // Fallback auto-trigger at 9.5 seconds
                         setTimeout(triggerStreamlitFinish, 9500);
                     }}).catch(err => {{
                         console.error('Playback error:', err);
@@ -120,7 +118,6 @@ if not st.session_state.intro_done:
                 [data-testid="stHeader"] {display: none !important;}
                 .main .block-container { padding: 0 !important; max-width: 100vw !important; }
                 
-                /* Hide native button, keep accessible in DOM */
                 div[data-testid="stButton"] {
                     position: absolute !important;
                     top: -9999px !important;
@@ -162,6 +159,16 @@ if st.sidebar.button("Replay Intro Video"):
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "aircraft_defect_model_3datasets.pth")
 NUM_CLASSES = 6
+
+# Auto-download model weights from Hugging Face if not present locally
+if not os.path.exists(MODEL_PATH):
+    with st.spinner("Downloading model weights from Hugging Face... Please wait."):
+        # REPLACE THE URL BELOW with your actual Hugging Face raw file download link
+        hf_url = "https://huggingface.co/Aditya-Mamarde/aircraft-defect-detector/resolve/main/aircraft_defect_model_3datasets.pth"
+        try:
+            urllib.request.urlretrieve(hf_url, MODEL_PATH)
+        except Exception as e:
+            st.error(f"Failed to download model weights automatically: {e}")
 
 @st.cache_resource
 def load_model():
@@ -231,6 +238,4 @@ if uploaded_file is not None and model is not None:
         if detected_count > 0:
             st.error(f"Detected **{detected_count}** defect(s) above {int(confidence_threshold*100)}% confidence threshold.")
         else:
-            st.success("No defects detected above the threshold.") 
-
-#python -m streamlit run app.py
+            st.success("No defects detected above the threshold.")
