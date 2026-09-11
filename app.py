@@ -162,10 +162,12 @@ NUM_CLASSES = 6
 
 # Auto-download model weights from Hugging Face if not present locally
 if not os.path.exists(MODEL_PATH):
-    with st.spinner("Downloading model weights from Hugging Face... Please wait."):
+    with st.spinner("Downloading model weights from Hugging Face (158MB)... Please wait."):
         hf_url = "https://huggingface.co/Aditya-Mamarde/aircraft-defect-detector/resolve/main/aircraft_defect_model_3datasets.pth"
         try:
-            urllib.request.urlretrieve(hf_url, MODEL_PATH)
+            req = urllib.request.Request(hf_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response, open(MODEL_PATH, 'wb') as out_file:
+                out_file.write(response.read())
         except Exception as e:
             st.error(f"Failed to download model weights: {e}")
 
